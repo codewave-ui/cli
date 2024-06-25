@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@codewave-ui/core':
-        specifier: ^0.0.32
-        version: 0.0.32(typescript@5.5.2)
+        specifier: latest
+        version: 0.0.3(typescript@5.5.2)
       glob:
         specifier: ^10.4.2
         version: 10.4.2
@@ -72,8 +72,8 @@ importers:
 
 packages:
 
-  '@codewave-ui/core@0.0.32':
-    resolution: {integrity: sha512-JNx/Femz36brCcJmIOU3svwrDDGY+X/mEmUlUi9K2pFSLJKF/h73rOkuk5l+aj++o85+HS+cvvHXNfmePvFO7w==}
+  '@codewave-ui/core@0.0.3':
+    resolution: {integrity: sha512-b6RJzbqgEQioKt5xZGcG+i3URN+TphEdfcbxD1YQGFRKyMU6TeJDI84XCv5u8UwKJPsno0/0KOuNnVaEjVlMRg==}
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -1916,7 +1916,7 @@ packages:
 
 snapshots:
 
-  '@codewave-ui/core@0.0.32(typescript@5.5.2)':
+  '@codewave-ui/core@0.0.3(typescript@5.5.2)':
     dependencies:
       emittery: 1.0.3
       glob: 10.4.2

@@ -1,6 +1,6 @@
 {
   "name": "@codewave-ui/cli",
-  "version": "0.0.2",
+  "version": "0.0.1",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -11,10 +11,16 @@
   "scripts": {
     "build": "tsup"
   },
-  "keywords": [],
+  "repository": "https://github.com/codewave-ui/cli",
+  "keywords": [
+    "frontend",
+    "test",
+    "automation",
+    "ui"
+  ],
   "author": "Joshua Lauwrich Nandy",
-  "license": "ISC",
-  "description": "",
+  "license": "MIT",
+  "description": "Command Line Interface (CLI) to run CodewaveUI (UI Automation Test Framework)",
   "devDependencies": {
     "@eslint/eslintrc": "^3.1.0",
     "@eslint/js": "^9.5.0",
@@ -35,7 +41,7 @@
   },
   "packageManager": "pnpm@9.4.0+sha512.f549b8a52c9d2b8536762f99c0722205efc5af913e77835dbccc3b0b0b2ca9e7dc8022b78062c17291c48e88749c70ce88eb5a74f1fa8c4bf5e18bb46c8bd83a",
   "dependencies": {
-    "@codewave-ui/core": "^0.0.32",
+    "@codewave-ui/core": "latest",
     "glob": "^10.4.2",
     "luxon": "^3.4.4",
     "yargs": "^17.7.2"
