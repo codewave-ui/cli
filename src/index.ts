@@ -5,23 +5,29 @@ import path from 'node:path';
 import yargs from 'yargs';
 import { glob } from 'glob';
 import {
-  BaseConfig,
+  Assert,
+  assertIsError,
   convertTimeMillisToPrettyString,
-  DesktopConfigs,
+  Driver,
   EventFactory,
   EventType,
+  Keyword,
   Platform,
+  Runner,
   TestStatus,
-  WebDriver,
 } from '@codewave-ui/core';
 import { DateTime } from 'luxon';
 
-function assertIsError(error: unknown): asserts error is Error {
-  // if you have nodejs assert:
-  // assert(error instanceof Error);
-  // otherwise
-  if (!(error instanceof Error)) {
-    throw error;
+function assertPlaformCorrect(platform: string): asserts platform is Platform {
+  if (
+    !(
+      platform === Platform.WEB_DESKTOP.toString() ||
+      platform === Platform.WEB_LITE.toString() ||
+      platform === Platform.MOBILE_ANDROID.toString() ||
+      platform === Platform.MOBILE_IOS.toString()
+    )
+  ) {
+    throw new Error('[ERR0002] Platform is not valid!');
   }
 }
 
@@ -54,23 +60,37 @@ function assertIsError(error: unknown): asserts error is Error {
             describe: 'location of the config files',
             type: 'string',
           },
+          tc: {
+            alias: 'test-case',
+            demandOption: false,
+            describe: 'Test case name',
+            type: 'string',
+          },
         });
       },
       async function (argv) {
+        const testCase = argv.tc as string | undefined;
         // Load all test files specified in the cli arguments
-        const files = await glob(<string>argv.name_or_path, {
+        let fileGlobPath: string = <string>argv.name_or_path;
+        if (process.platform === 'win32') fileGlobPath = fileGlobPath.replaceAll('\\', '/');
+        const files = await glob(fileGlobPath, {
           ignore: ['node_modules/**', 'out/**'],
         });
-        const listeners = await glob('src/listeners/**/*.ts', {
-          ignore: 'src/listeners/base.listener.ts',
-        });
 
-        const platform = argv.p as unknown as Platform;
-        const configFile = argv.c as string;
+        const platform = argv.p;
+        assertPlaformCorrect(platform);
+        const configFile = argv.c ? argv.c : 'codewaveui.config.js';
+        let normalizeConfigFile = path.resolve(
+          path.join(process.cwd(), 'out', configFile.replace('.ts', '.js')),
+        );
+        if (process.platform === 'win32') normalizeConfigFile = `file://${normalizeConfigFile}`;
         let parallelRun = 1;
-
         // Container for the runners
-        const runners: (() => Promise<void>)[] = [];
+        const runners: (() => Promise<Runner>)[] = [];
+
+        // Initialize and load config files
+        const configModule = await import(normalizeConfigFile);
+        const config = configModule.default(platform);
 
         for (const file of files) {
           let normalizeFile = path.resolve(
@@ -84,72 +104,75 @@ function assertIsError(error: unknown): asserts error is Error {
           const loggerFactory = Test.loggerFactory;
           const mainLogger = loggerFactory.createLogger('MAIN');
 
-          // Initialize and load config files
-          let config: BaseConfig;
-          let keywordName: string;
-          switch (platform) {
-            case Platform.WEB_LITE:
-              // TODO initialize lite config
-              config = new DesktopConfigs(loggerFactory.createLogger('Config'));
-              keywordName = 'WebKeyword';
-
-              break;
-            case Platform.MOBILE_ANDROID:
-              // TODO initialize lite config
-              config = new DesktopConfigs(loggerFactory.createLogger('Config'));
-              keywordName = 'WebKeyword';
-
-              break;
-            case Platform.MOBILE_IOS:
-              // TODO initialize lite config
-              config = new DesktopConfigs(loggerFactory.createLogger('Config'));
-              keywordName = 'WebKeyword';
-
-              break;
-            default:
-              config = new DesktopConfigs(loggerFactory.createLogger('Config'));
-              keywordName = 'WebKeyword';
-          }
-          config.loadFromFile(configFile);
-
           parallelRun = config.parallelExecution;
-
-          // Create test instance from the config
-          const test = new Test(config);
 
           // Generate event manager for this particular test class
           const eventManager = EventFactory.generateEventManager(
             loggerFactory.createLogger('EventManager'),
           );
 
+          // Initialize runner
+          const currentRunner: Runner = Test.runnerFactory.getCurrentRunner();
+          const driver = new Driver(config, loggerFactory.createLogger('Driver'));
+
+          // Initialize driver
+          await driver.startDriver();
+
+          // Initialize keyword instances
+          const keyword = new Keyword(
+            driver,
+            currentRunner,
+            loggerFactory.createLogger('Keyword'),
+            config,
+            eventManager,
+          );
+
+          // Initialize assertion instances
+          const assertion = new Assert(
+            driver,
+            currentRunner,
+            loggerFactory.createLogger('Keyword'),
+            config,
+            eventManager,
+          );
+
+          // Create test instance from the config
+          const test = new Test(
+            config,
+            loggerFactory.createLogger(currentRunner.name),
+            eventManager,
+            currentRunner,
+          );
+
           // Initialize test listeners
-          for (const listener of listeners) {
-            let normalizeListener = path.resolve(
-              path.join(process.cwd(), 'out', listener.replace('.ts', '.js')),
-            );
-            if (process.platform === 'win32') normalizeListener = `file://${normalizeListener}`;
-
-            // Dynamic import the listener class
-            const { default: TestListener } = await import(normalizeListener);
-
+          for (const Listener of config.listeners) {
             // Create test listener instance
-            new TestListener(eventManager);
+            new Listener(
+              eventManager,
+              loggerFactory.createLogger(Listener.constructor.name),
+              currentRunner,
+            );
           }
 
-          const currentRunner = Test.runnerFactory.getCurrentRunner();
-          const driverLogger = loggerFactory.createLogger('Driver');
-          const keywordLogger = loggerFactory.createLogger(keywordName);
+          // For Test Case Run Only
+          if (testCase) {
+            currentRunner.testCases = currentRunner.testCases.filter(
+              tc => tc.name === testCase || tc.id === testCase,
+            );
+          }
 
           // Generate runner main function
-          runners.push(async () => {
+          runners.push(async (): Promise<Runner> => {
             currentRunner.startNow();
 
             // Try invoke before test suite hook
             try {
-              await eventManager.emit(EventType.BEFORE_SUITE, {
+              await eventManager.emitSerial(EventType.BEFORE_SUITE, {
                 testSuiteName: test.testSuiteName,
                 testSuiteId: test.testSuiteId,
                 runner: currentRunner,
+                Keyword: keyword,
+                logFolder: loggerFactory.logFolder,
               });
             } catch (err) {
               assertIsError(err);
@@ -157,7 +180,7 @@ function assertIsError(error: unknown): asserts error is Error {
               mainLogger.error(`${err.message}\n${err.stack}`);
               currentRunner.endNow();
               currentRunner.generateDuration();
-              return;
+              return currentRunner;
             }
 
             // For each test cases in the test suites
@@ -165,40 +188,39 @@ function assertIsError(error: unknown): asserts error is Error {
               currentRunner.currentTestCaseIndex = index;
               // Check if the test case is disabled or not
               if (runner.enabled) {
-                // Initialize driver
-                const driver = new WebDriver(config, driverLogger, keywordLogger, currentRunner);
                 await driver.startDriver();
-
                 try {
                   // Try to invoke before test case hook
-                  await eventManager.emit(EventType.BEFORE_CASE, {
+                  await eventManager.emitSerial(EventType.BEFORE_CASE, {
                     testSuiteName: test.testSuiteName,
                     testSuiteId: test.testSuiteId,
                     runner: currentRunner,
+                    Keyword: keyword,
+                    logFolder: loggerFactory.logFolder,
                   });
 
                   try {
                     // Try to run the test case
                     currentRunner.testCases[currentRunner.currentTestCaseIndex].startNow();
-                    await runner.method.bind(test)({ driver });
-                    currentRunner.testCases[currentRunner.currentTestCaseIndex].status =
-                      TestStatus.SUCCESS;
+                    await runner.method.bind(test)({ Keyword: keyword, Assertion: assertion });
+                    currentRunner.testCases[currentRunner.currentTestCaseIndex].markAsPassed();
                     currentRunner.testCases[currentRunner.currentTestCaseIndex].endNow();
                     currentRunner.testCases[currentRunner.currentTestCaseIndex].generateDuration();
+                    if (currentRunner.status === TestStatus.SKIPPED) currentRunner.markAsPassed();
                   } catch (tcError) {
                     assertIsError(tcError);
+                    currentRunner.markAsFailed();
                     const now = DateTime.now().toMillis();
                     currentRunner.testCases[currentRunner.currentTestCaseIndex].endNow();
                     currentRunner.testCases[currentRunner.currentTestCaseIndex].generateDuration();
-                    currentRunner.testCases[currentRunner.currentTestCaseIndex].status =
-                      TestStatus.FAILED;
+                    currentRunner.testCases[currentRunner.currentTestCaseIndex].markAsFailed();
                     currentRunner.testCases[currentRunner.currentTestCaseIndex].exception =
                       tcError.message;
 
                     // Try to take screenshot
                     try {
                       const ssPath = path.resolve(path.join(loggerFactory.logFolder, now + '.png'));
-                      await driver.driver.saveScreenshot(ssPath);
+                      await driver.getDriverInstance().saveScreenshot(ssPath);
                       currentRunner.testCases[currentRunner.currentTestCaseIndex].screenshot =
                         ssPath;
                     } catch (ssError) {
@@ -206,7 +228,7 @@ function assertIsError(error: unknown): asserts error is Error {
                       // Ignore and warn if failed to take screenshot
                       mainLogger.warn(`${ssError.message}\n${ssError.stack}`);
                     }
-                    currentRunner.status = TestStatus.FAILED;
+                    currentRunner.markAsFailed();
                     mainLogger.error(`${tcError.message}\n${tcError.stack}`);
                   }
                 } catch (btcError) {
@@ -220,10 +242,12 @@ function assertIsError(error: unknown): asserts error is Error {
 
                 // Try to invoke after test case hook
                 try {
-                  await eventManager.emit(EventType.AFTER_CASE, {
+                  await eventManager.emitSerial(EventType.AFTER_CASE, {
                     testSuiteName: test.testSuiteName,
                     testSuiteId: test.testSuiteId,
                     runner: currentRunner,
+                    Keyword: keyword,
+                    logFolder: loggerFactory.logFolder,
                   });
                 } catch (atcError) {
                   assertIsError(atcError);
@@ -241,15 +265,18 @@ function assertIsError(error: unknown): asserts error is Error {
             try {
               currentRunner.endNow();
               currentRunner.generateDuration();
-              await eventManager.emit(EventType.AFTER_SUITE, {
+              await eventManager.emitSerial(EventType.AFTER_SUITE, {
                 testSuiteName: test.testSuiteName,
                 testSuiteId: test.testSuiteId,
                 runner: currentRunner,
+                Keyword: keyword,
+                logFolder: loggerFactory.logFolder,
               });
             } catch (err) {
               assertIsError(err);
               mainLogger.error(`${err.message}\n${err.stack}`);
             }
+            return currentRunner;
           });
         }
 
