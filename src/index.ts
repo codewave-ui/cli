@@ -145,12 +145,15 @@ function assertPlaformCorrect(platform: string): asserts platform is Platform {
           );
 
           // Initialize test listeners
-          for (const Listener of config.listeners) {
+          for (const runnerListener of config.listeners) {
             // Create test listener instance
+            const Listener = runnerListener.implClass;
+            const args = runnerListener.args;
             new Listener(
               eventManager,
               loggerFactory.createLogger(Listener.constructor.name),
               currentRunner,
+              ...args,
             );
           }
 
